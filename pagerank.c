@@ -26,7 +26,7 @@ int bi = 0;			// buffer inrementer
 struct site {
 	float pagerank;	// pagerank of the latest iteration
 	float prev_pagerank; // this updates only after 2 iterations
-	char cid[19];	// page id make num
+	char cid[20];	// page id make num
 	unsigned long id;	// working page rank
 
 	int outLinks;	// number of out links
@@ -104,8 +104,11 @@ int add_edge(unsigned long a, unsigned long b) {
 		}
 	}
 	/* check if the website is declared > 1 or not at all */
-	if ((counterA + counterB) != 2) 
+	if ((counterA + counterB) != 2) {
+		//printf("%d %d\n", counterA, counterB);
+		//printf("counter edge error\n");
 		return 0;
+	}
 
 	/* set the in/out sets to point to the correct websites */
 	websites[positionA].out[ websites[positionA].outIncrementer ] = &websites[positionB];
@@ -117,8 +120,8 @@ int add_edge(unsigned long a, unsigned long b) {
 }
 /* adds a new website and initalises the data and allocates the memory for the in and out * arrays */
 void add_website(int website_icr, int i) {
-	char website_name[19];
-	my_strncpy(website_name, (char *)&buffer[i], 19);
+	char website_name[20];
+	my_strncpy(website_name, (char *)&buffer[i], 20);
 	websites[website_icr].id = hash((unsigned char *)website_name);		// hashed id
 	strcpy(websites[website_icr].cid, website_name);		// copys the string in place but may not be needed here? use fgets or something???
 	websites[website_icr].pagerank = 1.0/nsites;
@@ -201,8 +204,8 @@ int parse_input(void) {
 	int website_icr = 0, //website incrementer
 		edge_icr = 0;
 	
-	//char and long tempSite, tempOutsite;
-	unsigned char tempSite[19], tempOutsite[19];
+	/* to store buffer chunks of memory before being converted or pased on. Note the memory limits of up to 15 chars for nsites */
+	unsigned char tempSite[20], tempOutsite[20], tempNedges[15], tempNsites[15], tempNcores[4]; // to store tempoary strings before passed on
 	unsigned long ltempSite, ltempOutsite;
 
 
@@ -212,14 +215,16 @@ int parse_input(void) {
 		if (buffer[bi] != '\n' && buffer[bi] != ' ') {	// NOTE: consider this when working out values
 			/* set num cores and sites */
 			if (bi == 0) {
-				ncores = atoi((char *)&buffer[bi]);
+				my_strncpy((char *)tempNcores, (char *)&buffer[bi], 15);
+				ncores = atoi((char *)tempNcores);
 				if (ncores < 1) {
 					//printf("ncores error");
 					return 0;	// not enough cores
 				}
 			}
 			else if (bi == 2)	{
-				nsites = atoi((char *)&buffer[bi]);
+				my_strncpy((char *)tempNsites, (char *)&buffer[bi], 15);
+				nsites = atoi((char *)tempNsites);
 				if (nsites < 1) {
 					//printf("nsites error");
 					return 0;	// not enough websites
@@ -236,16 +241,18 @@ int parse_input(void) {
 				}
 				/* set num edges and rudamentry check for num of edges */
 				else if( nedges == 0) { // check to see if nedges have been set
-					nedges = atoi((char *)&buffer[bi]);
+					my_strncpy((char *)tempNedges, (char *)&buffer[bi], 15);
+					nedges = atoi((char *)tempNedges); 
 					if (nedges < nsites-1){		// check for are least nsite edges
 						//printf("nedges error\n");
 						return 0;
 					}
+					
 				}
 				/* add edge */
 				else if (edge_icr < nedges) {	
-					my_strncpy((char *)tempSite, (char *)&buffer[bi], 19);
-					my_strncpy((char *)tempOutsite, (char *)&buffer[bi+1], 19);	// assuming the buffer bi is correct
+					my_strncpy((char *)tempSite, (char *)&buffer[bi], 20);
+					my_strncpy((char *)tempOutsite, (char *)&buffer[bi+1], 20);	// assuming the buffer bi is correct
 					bi++;
 					ltempSite = hash(tempSite);			// first website - CHECK HERE
 					ltempOutsite = hash(tempOutsite);		// next website in buffer
@@ -336,7 +343,6 @@ main(void) {
 
 		/* parse input from memory buffer */
 		if (parse_input()) {
-		
 			get_pagerank();
 
 
@@ -347,10 +353,7 @@ main(void) {
 	}
 	else
 		error();		//error from read input
-	// work out number of threads
-	// process page ranks
-	// print out the page ranks
-	//
+
 	//printf("%d %d\n", ncores, nsites);
 	//print_websites();
 	print_pageranks();
