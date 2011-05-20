@@ -2,8 +2,6 @@
  * James Alexander: 307192962
  * Comp2129 Assignment 4
  *
- * TODO consider barriers
- *
  */
 #include <assert.h>
 #include <math.h>
@@ -39,7 +37,10 @@ struct site {
 
 struct site *websites = NULL; // global array of websites 
 
-
+/*static int nthreads = 0;
+static int *taskid = NULL;					// used for arguments
+static pthread_t *pagerank_thread = NULL;	// thread IDs
+*/
 /* ============================================================================
  * Helper functions
  * ========================================================================== */
@@ -77,7 +78,7 @@ char*my_strncpy(char *dest, const char *src, size_t n){
 	for (i = 0 ; i < n && src[i] != '\0' && src[i] != '\n' && src[i] != ' '; ++i){ // NOTE: does not copy in spaces!
 		dest[i] = src[i]; 
 		bi++;			// sets global buffer incrementer to the new position
-}
+	}
 	for ( ; i < n ; i++){
 		dest[i] = '\0'; // this will make all other characters null in the string
 	}
@@ -151,9 +152,9 @@ void print_websites(void) {
 			if (websites[i].out[j] != NULL)
 				printf("-%s %f- ", websites[i].out[j]->cid, websites[i].out[j]->pagerank);
 		}
-		
+
 		printf("\n");
-		}
+	}
 
 
 }
@@ -166,12 +167,9 @@ void print_pageranks(void) {
 	}
 }
 
-
 /* ============================================================================
  * Input functions 
  * ========================================================================== */
-
-
 
 /* read input from stdin using fread */
 int read_input(void) {
@@ -196,18 +194,17 @@ int read_input(void) {
 		}
 	}
 	return 1;
-
 }
+
 /* parse input from memory NOTE the 'else if' statements of control */
 int parse_input(void) {	
 	//int i;
-	int website_icr = 0, //website incrementer
-		edge_icr = 0;
-	
+	int website_icr = 0, // website incrementer
+		edge_icr = 0;	// edge incrementer
+
 	/* to store buffer chunks of memory before being converted or pased on. Note the memory limits of up to 15 chars for nsites */
 	unsigned char tempSite[20], tempOutsite[20], tempNedges[15], tempNsites[15], tempNcores[4]; // to store tempoary strings before passed on
 	unsigned long ltempSite, ltempOutsite;
-
 
 	/* iterate through the buffer input */
 	for (bi = 0; bi < lsize; ++bi) {
@@ -247,7 +244,7 @@ int parse_input(void) {
 						//printf("nedges error\n");
 						return 0;
 					}
-					
+
 				}
 				/* add edge */
 				else if (edge_icr < nedges) {	
@@ -263,10 +260,18 @@ int parse_input(void) {
 					else {
 						//printf("add edge error\n");
 						return 0;
-					}		
+					}
+				}
+				/* check for extra edges */
+				else if (edge_icr == nedges) {
+					if (buffer[bi])
+						return 0;
 				}
 			}
 		}
+	}
+	if (edge_icr != nedges) { // number of edges readin was less then defined
+		return 0;
 	}
 	return 1;
 }
@@ -279,15 +284,12 @@ float sum_in(int icr) {
 	int j;
 	float tempSum = 0;
 	for (j = 0; j < nsites && websites[icr].in[j] != NULL; ++j) {
-		
-		tempSum += (websites[icr].in[j]->prev_pagerank/websites[icr].in[j]->outIncrementer);
-		//printf("%d\n", websites[icr].in[j]->outIncrementer);
-		//printf("%s\n", websites[icr].in[j]->cid);
-		//printf("%s\n", websites[icr].cid);
-	}
 
+		tempSum += (websites[icr].in[j]->prev_pagerank/websites[icr].in[j]->outIncrementer);
+	}
 	return tempSum;
 }
+
 /* calculates and store the pagerank in the respective data struct pointed to by icr */
 float calculate_pagerank(int icr) {
 	float tempPr = ((1 - D)/nsites) + (D*(sum_in(icr)));
@@ -318,19 +320,88 @@ void check_convergence(float cv_sum) {
 /* ============================================================================
  * Thread management functions
  * ========================================================================== */
-void get_pagerank(void) {
+
+/* sequential solution */
+void seq_pagerank(void) {
 	int i;
 	float converge_sum = 0;
-	/* sequential solution */
 	while(!convergence) {
 		for (i = 0; i < nsites; ++i) {
 			converge_sum += calculate_pagerank(i);
-			}
+		}
 		check_convergence(converge_sum);
 		converge_sum = 0;
 	}
 }
+/*
+static void *
+worker_thread(void *arg) {
+	int icr = *(int*)arg;
+	int partition = ncores*icr; 
+	//each thread as a range to cover which is defined before this
+	int i;
 
+	for (i = 0; i < partition; ++i) {
+		float tempPr = ((1 - D)/nsites) + (D*(sum_in(icr)));
+		//float tempCv = 0;
+		// shift the values down - Can do a check for first iteration later
+		websites[icr].prev_pagerank = websites[icr].pagerank;
+		// set the new pagerank 
+		websites[icr].pagerank = tempPr;
+		icr++;
+	}
+	return NULL;
+}
+*/
+
+
+void get_pagerank(void) {
+	
+	seq_pagerank();
+
+	/* excute the seqential solution for these conditions 
+	if (ncores == 1 || nsites < 4 || nsites == ncores) {
+		seq_pagerank();
+	}
+	else {
+		float tempCv, convergeSum;
+		//int partition = 2; 
+		int i, checkt, j;
+		nthreads = 2;
+		//allocate memory for taskid and threads
+		taskid = (int *)malloc(nthreads * sizeof(int));		
+		pagerank_thread = calloc(nthreads, sizeof(pthread_t));
+
+		while (!convergence) {
+			// create the threads executing working_thread 
+			for (i = 0; i < nthreads; ++i) {				
+				taskid[i] = i;				// assign the incrementer as the arg
+				checkt = pthread_create(&pagerank_thread[i], NULL, worker_thread, (void *) &taskid[i]);
+				// error checking 
+				if (checkt){
+					printf("error creating thread %d\n", i);
+					exit(0);
+				}
+			}
+			// join all threads 
+			for (j = 0; j < nthreads; ++j) {
+				checkt = pthread_join(pagerank_thread[j], NULL);
+				if (checkt) {
+					printf("error return code from thread %d\n", checkt);
+				}
+			}
+			// iterative returns the pagerank difference per icrement 
+			for (i = 0; i < nsites; ++i) {
+				tempCv = websites[i].pagerank - websites[i].prev_pagerank;
+				tempCv = tempCv * tempCv;	//square the result then return
+				convergeSum += tempCv;
+			}
+			check_convergence(convergeSum);
+			convergeSum = 0;
+		}
+	}
+	*/
+}
 
 /* ============================================================================
  * Main Function
@@ -340,16 +411,12 @@ int
 main(void) {
 	/* read in input */
 	if (read_input()) {
-
 		/* parse input from memory buffer */
 		if (parse_input()) {
 			get_pagerank();
-
-
 		}
 		else
 			error();		//error from parse
-
 	}
 	else
 		error();		//error from read input
